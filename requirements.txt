@@ -1,20 +1,14 @@
-streamlit==1.45.1
+streamlit
+openai
 
-openai==1.82.0
-
-langchain==0.3.25
-langchain-core==0.3.61
-langchain-openai==0.3.18
-langchain-chroma==0.2.4
-langchain-text-splitters==0.3.8
-
+langchain-openai
+langchain-chroma
+langchain-text-splitters
 chromadb==0.5.23
 
-google-api-python-client==2.170.0
-google-auth==2.40.2
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.2
+google-api-python-client
+google-auth
+google-auth-httplib2
 
-pypdf==5.5.0
-
+pypdf
 protobuf==5.29.3

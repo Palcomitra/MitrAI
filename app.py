@@ -1,9 +1,17 @@
 import os
+import io
+import json
 import shutil
 import streamlit as st
 from openai import OpenAI
 
-from langchain_community.document_loaders import GoogleDriveLoader
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
+from pypdf import PdfReader
+
+from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -12,24 +20,16 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
 CHROMA_DIR = "chroma_db"
 
-
-st.set_page_config(
-    page_title="MitrAI",
-    page_icon="🤝",
-    layout="centered"
-)
-
+st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 
 st.title("🤝 MitrAI")
 st.caption("Always Here to Help")
 
 
-try:
-    api_key = st.secrets["OPENAI_API_KEY"]
-    client = OpenAI(api_key=api_key)
-except Exception:
-    api_key = None
-    client = None
+api_key = st.secrets.get("OPENAI_API_KEY", None)
+google_service_account = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None)
+
+client = OpenAI(api_key=api_key) if api_key else None
 
 
 with st.sidebar:
@@ -38,16 +38,105 @@ with st.sidebar:
     if api_key:
         st.success("AI Connected")
     else:
-        st.error("OpenAI API Key not found in Streamlit Secrets")
+        st.error("OpenAI API Key missing")
+
+    if google_service_account:
+        st.success("Google Drive Connected")
+    else:
+        st.error("Google Service Account missing")
 
     st.divider()
 
     if st.button("Refresh Knowledge"):
         if os.path.exists(CHROMA_DIR):
             shutil.rmtree(CHROMA_DIR)
-
         st.cache_resource.clear()
-        st.success("Knowledge refreshed. Please ask your question again.")
+        st.success("Knowledge refreshed. Ask again.")
+
+
+def get_drive_service():
+    service_account_info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    )
+
+    return build("drive", "v3", credentials=credentials)
+
+
+def list_drive_files(service, folder_id):
+    all_files = []
+
+    query = f"'{folder_id}' in parents and trashed = false"
+
+    results = service.files().list(
+        q=query,
+        fields="files(id, name, mimeType)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True
+    ).execute()
+
+    files = results.get("files", [])
+
+    for file in files:
+        mime_type = file.get("mimeType")
+
+        if mime_type == "application/vnd.google-apps.folder":
+            all_files.extend(list_drive_files(service, file["id"]))
+        else:
+            all_files.append(file)
+
+    return all_files
+
+
+def read_google_doc(service, file_id):
+    request = service.files().export_media(
+        fileId=file_id,
+        mimeType="text/plain"
+    )
+
+    file_data = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_data, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    return file_data.getvalue().decode("utf-8", errors="ignore")
+
+
+def read_pdf(service, file_id):
+    request = service.files().get_media(fileId=file_id)
+
+    file_data = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_data, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    file_data.seek(0)
+    reader = PdfReader(file_data)
+
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() or ""
+
+    return text
+
+
+def read_text_file(service, file_id):
+    request = service.files().get_media(fileId=file_id)
+
+    file_data = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_data, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    return file_data.getvalue().decode("utf-8", errors="ignore")
 
 
 @st.cache_resource
@@ -60,32 +149,51 @@ def load_knowledge_base(openai_key):
             embedding_function=embeddings
         )
 
-    loader = GoogleDriveLoader(
-        folder_id=FOLDER_ID,
-        token_path="token.json",
-        credentials_path="credentials.json",
-        recursive=True,
-        file_types=["document", "pdf"]
-    )
+    service = get_drive_service()
+    files = list_drive_files(service, FOLDER_ID)
 
-    docs = loader.load()
+    documents = []
 
-    if not docs:
-        st.error("No documents found in the knowledge folder.")
+    for file in files:
+        file_id = file["id"]
+        name = file["name"]
+        mime_type = file["mimeType"]
+
+        try:
+            text = ""
+
+            if mime_type == "application/vnd.google-apps.document":
+                text = read_google_doc(service, file_id)
+
+            elif mime_type == "application/pdf":
+                text = read_pdf(service, file_id)
+
+            elif mime_type == "text/plain":
+                text = read_text_file(service, file_id)
+
+            if text.strip():
+                documents.append(
+                    Document(
+                        page_content=text,
+                        metadata={"source": name}
+                    )
+                )
+
+        except Exception as e:
+            st.warning(f"Could not read file: {name}")
+
+    if not documents:
+        st.error("No readable documents found in Google Drive.")
         return None
 
-    st.info(f"Loaded {len(docs)} documents from knowledge folder.")
+    st.info(f"Loaded {len(documents)} documents from Google Drive.")
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
 
-    chunks = splitter.split_documents(docs)
-
-    if not chunks:
-        st.error("Documents found, but readable text could not be extracted.")
-        return None
+    chunks = splitter.split_documents(documents)
 
     vectorstore = Chroma.from_documents(
         documents=chunks,
@@ -102,7 +210,7 @@ if "messages" not in st.session_state:
         "role": "assistant",
         "content": (
             "Hello! I am **MitrAI**.\n\n"
-            "I am always here to help you with work, learning, guidance, "
+            "Always here to help you with work, learning, guidance, "
             "and everyday questions."
         )
     }]
@@ -125,6 +233,8 @@ if prompt := st.chat_input("Ask anything..."):
     with st.chat_message("assistant"):
         if not api_key:
             st.error("AI connection is not configured.")
+        elif not google_service_account:
+            st.error("Google Drive connection is not configured.")
         else:
             with st.spinner("Thinking..."):
                 vectorstore = load_knowledge_base(api_key)
@@ -139,7 +249,10 @@ if prompt := st.chat_input("Ask anything..."):
                     relevant_docs = retriever.invoke(prompt)
 
                     context = "\n\n".join(
-                        [doc.page_content for doc in relevant_docs]
+                        [
+                            f"Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}"
+                            for doc in relevant_docs
+                        ]
                     )
 
                 final_prompt = f"""
@@ -147,16 +260,15 @@ You are MitrAI, a friendly and practical AI companion.
 
 Your tagline is: Always Here to Help.
 
-Your role:
-- Help users with work-related questions.
-- Help users with everyday guidance.
-- Give clear, practical, calm, and respectful answers.
-- If company or document context is available, use it.
-- If the answer is not found in the available documents, clearly say that it is not found in the available knowledge base and then give a general helpful answer.
-- For health, legal, financial, or emotional crisis topics, give safe general guidance and suggest consulting a qualified professional when needed.
-- Do not mention Palco unless the user asks about Palco or the available documents contain Palco-related context.
+Rules:
+- Help users with work-related questions and everyday guidance.
+- Use the available knowledge context when relevant.
+- If the answer is not available in the knowledge base, say that clearly.
+- Do not mention any company name unless the user asks or the context requires it.
+- Give simple, clear, practical answers.
+- For medical, legal, financial, or emotional crisis questions, give safe general guidance and suggest professional help when needed.
 
-Available Knowledge Context:
+Knowledge Context:
 {context}
 
 User Question:

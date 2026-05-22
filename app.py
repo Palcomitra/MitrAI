@@ -15,7 +15,7 @@ CHROMA_DIR = "chroma_db"
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 
 st.title("🤝 MitrAI")
-st.caption("Palco's AI Companion | Company Knowledge + Work Help")
+st.caption("Always Here to Help")
 
 
 with st.sidebar:
@@ -89,7 +89,7 @@ def load_knowledge_base(openai_key):
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
-        "content": "Hello! I am MitrAI, Palco's AI companion. Ask me anything about company documents, products, blogs, or work-related help."
+        "content": ""Hello! I am MitrAI. I am always here to help you with work, learning, guidance, and everyday questions."
     }]
 
 

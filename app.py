@@ -1,4 +1,5 @@
 import os
+import shutil
 import streamlit as st
 from openai import OpenAI
 
@@ -12,31 +13,41 @@ FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
 CHROMA_DIR = "chroma_db"
 
 
-st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
+st.set_page_config(
+    page_title="MitrAI",
+    page_icon="🤝",
+    layout="centered"
+)
+
 
 st.title("🤝 MitrAI")
 st.caption("Always Here to Help")
 
 
+try:
+    api_key = st.secrets["OPENAI_API_KEY"]
+    client = OpenAI(api_key=api_key)
+except Exception:
+    api_key = None
+    client = None
+
+
 with st.sidebar:
-    st.header("Staff / Admin")
-    api_key = st.text_input("OpenAI API Key", type="password")
+    st.header("Settings")
 
     if api_key:
-        client = OpenAI(api_key=api_key)
-        st.success("API Connected")
+        st.success("AI Connected")
     else:
-        client = None
-        st.warning("Enter OpenAI API Key")
+        st.error("OpenAI API Key not found in Streamlit Secrets")
 
     st.divider()
 
-    if st.button("Refresh Google Drive Knowledge"):
+    if st.button("Refresh Knowledge"):
         if os.path.exists(CHROMA_DIR):
-            import shutil
             shutil.rmtree(CHROMA_DIR)
+
         st.cache_resource.clear()
-        st.success("Knowledge refreshed. Ask a question again.")
+        st.success("Knowledge refreshed. Please ask your question again.")
 
 
 @st.cache_resource
@@ -60,10 +71,10 @@ def load_knowledge_base(openai_key):
     docs = loader.load()
 
     if not docs:
-        st.error("No documents found in Google Drive folder.")
+        st.error("No documents found in the knowledge folder.")
         return None
 
-    st.info(f"Loaded {len(docs)} documents from Google Drive")
+    st.info(f"Loaded {len(docs)} documents from knowledge folder.")
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -73,7 +84,7 @@ def load_knowledge_base(openai_key):
     chunks = splitter.split_documents(docs)
 
     if not chunks:
-        st.error("Documents found, but no readable text extracted.")
+        st.error("Documents found, but readable text could not be extracted.")
         return None
 
     vectorstore = Chroma.from_documents(
@@ -82,14 +93,18 @@ def load_knowledge_base(openai_key):
         persist_directory=CHROMA_DIR
     )
 
-    st.success(f"Knowledge base created with {len(chunks)} chunks")
+    st.success(f"Knowledge base created with {len(chunks)} chunks.")
     return vectorstore
 
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
-        "content": "Hello! I am MitrAI. I am always here to help you with work, learning, guidance, and everyday questions."
+        "content": (
+            "Hello! I am **MitrAI**.\n\n"
+            "I am always here to help you with work, learning, guidance, "
+            "and everyday questions."
+        )
     }]
 
 
@@ -98,18 +113,23 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 
-if prompt := st.chat_input("Type your question here..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+if prompt := st.chat_input("Ask anything..."):
+    st.session_state.messages.append({
+        "role": "user",
+        "content": prompt
+    })
 
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
         if not api_key:
-            st.error("Please enter OpenAI API Key first.")
+            st.error("AI connection is not configured.")
         else:
-            with st.spinner("Checking Palco documents..."):
+            with st.spinner("Thinking..."):
                 vectorstore = load_knowledge_base(api_key)
+
+                context = ""
 
                 if vectorstore:
                     retriever = vectorstore.as_retriever(
@@ -122,13 +142,21 @@ if prompt := st.chat_input("Type your question here..."):
                         [doc.page_content for doc in relevant_docs]
                     )
 
-                    final_prompt = f"""
-You are MitrAI, Palco's internal AI assistant.
+                final_prompt = f"""
+You are MitrAI, a friendly and practical AI companion.
 
-Use the company document context below when it is relevant.
-If the answer is not available in the documents, clearly say that it is not found in the available company documents and then give a general helpful answer if appropriate.
+Your tagline is: Always Here to Help.
 
-Company Document Context:
+Your role:
+- Help users with work-related questions.
+- Help users with everyday guidance.
+- Give clear, practical, calm, and respectful answers.
+- If company or document context is available, use it.
+- If the answer is not found in the available documents, clearly say that it is not found in the available knowledge base and then give a general helpful answer.
+- For health, legal, financial, or emotional crisis topics, give safe general guidance and suggest consulting a qualified professional when needed.
+- Do not mention Palco unless the user asks about Palco or the available documents contain Palco-related context.
+
+Available Knowledge Context:
 {context}
 
 User Question:
@@ -137,21 +165,20 @@ User Question:
 Answer in simple, clear English.
 """
 
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "user", "content": final_prompt}
-                        ],
-                        temperature=0.4,
-                        max_tokens=900
-                    )
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "user", "content": final_prompt}
+                    ],
+                    temperature=0.4,
+                    max_tokens=900
+                )
 
-                    answer = response.choices[0].message.content
-                    st.markdown(answer)
+                answer = response.choices[0].message.content
 
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": answer
-                    })
-                else:
-                    st.error("Knowledge base could not be loaded.")
+                st.markdown(answer)
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": answer
+                })

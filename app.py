@@ -65,7 +65,7 @@ def load_knowledge_base(openai_key):
         token_path="token.json",
         credentials_path="credentials.json",
         recursive=True,
-        file_types=["document", "pdf", "text/plain"]
+        file_types=["document", "pdf"]
     )
 
     docs = loader.load()

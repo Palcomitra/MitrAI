@@ -186,7 +186,7 @@ def load_knowledge_base(openai_key):
         st.error("No readable documents found in Google Drive.")
         return None
 
-    st.info(f"Loaded {len(documents)} documents from Google Drive.")
+    
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -201,7 +201,7 @@ def load_knowledge_base(openai_key):
         persist_directory=CHROMA_DIR
     )
 
-    st.success(f"Knowledge base created with {len(chunks)} chunks.")
+    
     return vectorstore
 
 

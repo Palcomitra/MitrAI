@@ -1,63 +1,157 @@
+import os
 import streamlit as st
 from openai import OpenAI
+
+from langchain_community.document_loaders import GoogleDriveLoader
+from langchain_openai import OpenAIEmbeddings
+from langchain_chroma import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+
+FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
+CHROMA_DIR = "chroma_db"
+
 
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 
 st.title("🤝 MitrAI")
-st.caption("Palco's AI Companion | Work + Life + Company Help")
+st.caption("Palco's AI Companion | Company Knowledge + Work Help")
 
-# Sidebar
+
 with st.sidebar:
-    st.header("👨‍💼 Staff / Admin")
-    is_admin = st.checkbox("🛠️ Admin Mode - Manual Reply", value=False)
+    st.header("Staff / Admin")
+    api_key = st.text_input("OpenAI API Key", type="password")
 
-# Initialize OpenAI Client
-api_key = st.secrets.get("OPENAI_API_KEY") or st.text_input("OpenAI API Key", type="password", value="")
+    if api_key:
+        client = OpenAI(api_key=api_key)
+        st.success("API Connected")
+    else:
+        client = None
+        st.warning("Enter OpenAI API Key")
 
-if api_key:
-    client = OpenAI(api_key=api_key)
-    st.sidebar.success("✅ API Connected")
-else:
-    st.sidebar.warning("API Key Required")
-    client = None
+    st.divider()
 
-# Chat History
+    if st.button("Refresh Google Drive Knowledge"):
+        if os.path.exists(CHROMA_DIR):
+            import shutil
+            shutil.rmtree(CHROMA_DIR)
+        st.cache_resource.clear()
+        st.success("Knowledge refreshed. Ask a question again.")
+
+
+@st.cache_resource
+def load_knowledge_base(openai_key):
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
+
+    if os.path.exists(CHROMA_DIR):
+        return Chroma(
+            persist_directory=CHROMA_DIR,
+            embedding_function=embeddings
+        )
+
+    loader = GoogleDriveLoader(
+        folder_id=FOLDER_ID,
+        token_path="token.json",
+        credentials_path="credentials.json",
+        recursive=True,
+        file_types=["document", "pdf", "text/plain"]
+    )
+
+    docs = loader.load()
+
+    if not docs:
+        st.error("No documents found in Google Drive folder.")
+        return None
+
+    st.info(f"Loaded {len(docs)} documents from Google Drive")
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200
+    )
+
+    chunks = splitter.split_documents(docs)
+
+    if not chunks:
+        st.error("Documents found, but no readable text extracted.")
+        return None
+
+    vectorstore = Chroma.from_documents(
+        documents=chunks,
+        embedding=embeddings,
+        persist_directory=CHROMA_DIR
+    )
+
+    st.success(f"Knowledge base created with {len(chunks)} chunks")
+    return vectorstore
+
+
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
-        "content": "Hello! 👋\n\nI'm **MitrAI** – Palco Team's AI Companion.\nAsk me anything about company, products, HR, or personal issues."
+        "content": "Hello! I am MitrAI, Palco's AI companion. Ask me anything about company documents, products, blogs, or work-related help."
     }]
+
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+
 if prompt := st.chat_input("Type your question here..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
+
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            if client:
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=st.session_state.messages,
-                    temperature=0.7
-                )
-                ai_answer = response.choices[0].message.content
-                st.markdown(ai_answer)
-                st.session_state.messages.append({"role": "assistant", "content": ai_answer})
+        if not api_key:
+            st.error("Please enter OpenAI API Key first.")
+        else:
+            with st.spinner("Checking Palco documents..."):
+                vectorstore = load_knowledge_base(api_key)
 
-                # Admin Manual Reply
-                if is_admin:
-                    st.divider()
-                    st.subheader("🛠️ Admin Manual Reply")
-                    manual_reply = st.text_area("If AI response is not good, write your own reply:", height=130)
-                    if st.button("📤 Send Manual Reply"):
-                        if manual_reply.strip():
-                            st.session_state.messages.append({"role": "assistant", "content": manual_reply})
-                            st.success("✅ Manual Reply Sent!")
-                            st.rerun()
-            else:
-                st.error("Please enter API Key")
+                if vectorstore:
+                    retriever = vectorstore.as_retriever(
+                        search_kwargs={"k": 5}
+                    )
+
+                    relevant_docs = retriever.invoke(prompt)
+
+                    context = "\n\n".join(
+                        [doc.page_content for doc in relevant_docs]
+                    )
+
+                    final_prompt = f"""
+You are MitrAI, Palco's internal AI assistant.
+
+Use the company document context below when it is relevant.
+If the answer is not available in the documents, clearly say that it is not found in the available company documents and then give a general helpful answer if appropriate.
+
+Company Document Context:
+{context}
+
+User Question:
+{prompt}
+
+Answer in simple, clear English.
+"""
+
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "user", "content": final_prompt}
+                        ],
+                        temperature=0.4,
+                        max_tokens=900
+                    )
+
+                    answer = response.choices[0].message.content
+                    st.markdown(answer)
+
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": answer
+                    })
+                else:
+                    st.error("Knowledge base could not be loaded.")

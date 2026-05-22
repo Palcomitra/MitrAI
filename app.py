@@ -89,7 +89,7 @@ def load_knowledge_base(openai_key):
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
-        "content": ""Hello! I am MitrAI. I am always here to help you with work, learning, guidance, and everyday questions."
+        "content": "Hello! I am MitrAI. I am always here to help you with work, learning, guidance, and everyday questions."
     }]
 
 

@@ -25,6 +25,7 @@ CHROMA_DIR = "chroma_db"
 
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 
+
 # ================== Hide Streamlit UI ==================
 
 hide_streamlit_style = """
@@ -58,8 +59,6 @@ header {
 """
 
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-
 
 
 # ================== Secrets & Clients ==================
@@ -97,118 +96,63 @@ def login_user(mobile, password):
     return None
 
 
-
 # ================== Admin Helper Functions ==================
 
-def is_admin_user():
-    user = st.session_state.get("user")
-    if not user:
-        return False
+def get_total_users():
+    if not supabase:
+        return 0
 
-    role = str(user.get("role", "")).strip().lower()
-    return role == "admin"
+    try:
+        result = supabase.table("app_users").select("*").execute()
+        return len(result.data or [])
+    except Exception:
+        return 0
 
 
-def fetch_app_users():
+def get_total_chats():
+    if not supabase:
+        return 0
+
+    try:
+        result = supabase.table("chat_history").select("*").execute()
+        return len(result.data or [])
+    except Exception:
+        return 0
+
+
+def get_recent_chats(limit=20):
+    if not supabase:
+        return []
+
+    try:
+        result = supabase.table("chat_history") \
+            .select("*") \
+            .order("created_at", desc=True) \
+            .limit(limit) \
+            .execute()
+        return result.data or []
+    except Exception:
+        try:
+            result = supabase.table("chat_history") \
+                .select("*") \
+                .limit(limit) \
+                .execute()
+            return result.data or []
+        except Exception:
+            return []
+
+
+def get_users():
     if not supabase:
         return []
 
     try:
         result = supabase.table("app_users") \
-            .select("name,mobile,status,role") \
-            .order("name") \
+            .select("*") \
             .execute()
         return result.data or []
-    except Exception as e:
-        st.error(f"Unable to fetch users: {e}")
+    except Exception:
         return []
-
-
-def fetch_chat_history(limit=100, mobile_filter=None):
-    if not supabase:
-        return []
-
-    try:
-        query = supabase.table("chat_history") \
-            .select("*") \
-            .order("created_at", desc=True) \
-            .limit(limit)
-
-        if mobile_filter and mobile_filter != "All":
-            query = query.eq("user_mobile", mobile_filter)
-
-        result = query.execute()
-        return result.data or []
-
-    except Exception as e:
-        st.error(f"Unable to fetch chat history: {e}")
-        return []
-
-
-def render_admin_dashboard():
-    st.title("Admin Dashboard")
-    st.caption("MitrAI usage, users, and recent chat history")
-
-    users = fetch_app_users()
-    chats = fetch_chat_history(limit=200)
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Users", len(users))
-    col2.metric("Total Chats", len(chats))
-    col3.metric(
-        "Active Users",
-        len([u for u in users if str(u.get("status", "")).lower() == "active"])
-    )
-
-    st.divider()
-
-    st.subheader("Users")
-
-    if users:
-        st.dataframe(users, use_container_width=True, hide_index=True)
-    else:
-        st.info("No users found.")
-
-    st.divider()
-
-    st.subheader("Chat History")
-
-    user_options = ["All"]
-    user_options += sorted(
-        list({
-            str(chat.get("user_mobile"))
-            for chat in chats
-            if chat.get("user_mobile")
-        })
-    )
-
-    selected_mobile = st.selectbox("Filter by mobile", user_options)
-
-    filtered_chats = fetch_chat_history(
-        limit=100,
-        mobile_filter=selected_mobile
-    )
-
-    if filtered_chats:
-        for chat in filtered_chats:
-            user_name = chat.get("user_name") or "Unknown User"
-            user_mobile = chat.get("user_mobile") or ""
-            created_at = chat.get("created_at") or ""
-
-            with st.expander(f"{user_name} {user_mobile} | {created_at}"):
-                st.markdown("**User Question:**")
-                st.write(chat.get("user_question", ""))
-
-                st.markdown("**AI Answer:**")
-                st.write(chat.get("ai_answer", ""))
-    else:
-        st.info("No chat history found.")
-
-    st.divider()
-
-    if st.button("Back to Chat"):
-        st.session_state.show_admin_dashboard = False
-        st.rerun()
 
 
 # ================== Session State ==================
@@ -218,9 +162,6 @@ if "logged_in" not in st.session_state:
 
 if "user" not in st.session_state:
     st.session_state.user = None
-
-if "show_admin_dashboard" not in st.session_state:
-    st.session_state.show_admin_dashboard = False
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{
@@ -281,46 +222,69 @@ with st.sidebar:
             }]
             st.rerun()
 
-    if api_key:
-        st.success("AI Connected")
-    else:
-        st.error("OpenAI API Key missing")
+    user_role = (st.session_state.user or {}).get("role", "staff")
 
-    if google_service_account:
-        st.success("Google Drive Connected")
-    else:
-        st.error("Google Service Account missing")
+    if user_role == "admin":
+        st.divider()
+        st.subheader("Admin Tools")
 
-    st.divider()
+        if api_key:
+            st.success("AI Connected")
+        else:
+            st.error("OpenAI API Key missing")
 
-    if is_admin_user():
-        st.subheader("Admin")
-        if st.button("Open Admin Dashboard"):
-            st.session_state.show_admin_dashboard = True
-            st.rerun()
+        if google_service_account:
+            st.success("Google Drive Connected")
+        else:
+            st.error("Google Service Account missing")
+
+        if st.button("Refresh Knowledge"):
+            if os.path.exists(CHROMA_DIR):
+                shutil.rmtree(CHROMA_DIR)
+            st.cache_resource.clear()
+            st.success("Knowledge refreshed. Ask again.")
 
         st.divider()
+        st.subheader("Admin Dashboard")
 
-    if st.button("Refresh Knowledge"):
-        if os.path.exists(CHROMA_DIR):
-            shutil.rmtree(CHROMA_DIR)
-        st.cache_resource.clear()
-        st.success("Knowledge refreshed. Ask again.")
+        total_users = get_total_users()
+        total_chats = get_total_chats()
 
+        st.metric("Total Users", total_users)
+        st.metric("Total Chats", total_chats)
 
-if st.session_state.user.get("role") == "admin":
+        with st.expander("Recent Chats", expanded=False):
+            recent_chats = get_recent_chats(20)
 
-    if api_key:
-        st.success("AI Connected")
+            if recent_chats:
+                for chat in recent_chats:
+                    user_name = chat.get("user_name") or "Unknown User"
+                    user_mobile = chat.get("user_mobile") or ""
+                    question = chat.get("user_question") or ""
+                    answer = chat.get("ai_answer") or ""
 
-    if google_service_account:
-        st.success("Google Drive Connected")
+                    st.markdown(f"**{user_name}** {user_mobile}")
+                    st.markdown(f"**Q:** {question}")
+                    st.markdown(f"**A:** {answer[:300]}...")
+                    st.divider()
+            else:
+                st.info("No chat history found.")
 
-    if st.button("Refresh Knowledge"):
-        if os.path.exists(CHROMA_DIR):
-            shutil.rmtree(CHROMA_DIR)
-        st.cache_resource.clear()
-        st.success("Knowledge refreshed. Ask again.")
+        with st.expander("Users", expanded=False):
+            users = get_users()
+
+            if users:
+                for u in users:
+                    st.markdown(
+                        f"**{u.get('name', 'Unknown')}**  \n"
+                        f"Mobile: {u.get('mobile', '')}  \n"
+                        f"Role: {u.get('role', '')}  \n"
+                        f"Status: {u.get('status', '')}"
+                    )
+                    st.divider()
+            else:
+                st.info("No users found.")
+
 
 # ================== Google Drive Functions ==================
 
@@ -474,14 +438,6 @@ def load_knowledge_base(openai_key):
     return vectorstore
 
 
-
-# ================== Admin Dashboard View ==================
-
-if is_admin_user() and st.session_state.show_admin_dashboard:
-    render_admin_dashboard()
-    st.stop()
-
-
 # ================== Chat Display ==================
 
 for msg in st.session_state.messages:
@@ -563,7 +519,7 @@ Answer in simple, clear English.
 
                 if supabase and st.session_state.user:
                     supabase.table("chat_history").insert({
-                        "user_email": "",
+                        "user_email": st.session_state.user.get("email", ""),
                         "user_name": st.session_state.user.get("name"),
                         "user_mobile": st.session_state.user.get("mobile"),
                         "user_question": prompt,

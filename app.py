@@ -54,16 +54,8 @@ header {
     visibility: hidden;
 }
 
-[data-testid="manage-app-button"] {
-    display: none;
-}
-
-button[kind="secondary"] {
-    visibility: hidden;
-}
-
-
 </style>
+"""
 """
 
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)

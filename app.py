@@ -218,19 +218,27 @@ if not st.session_state.logged_in:
         if user:
             st.session_state.logged_in = True
             st.session_state.user = user
-
-            cookies["logged_in"] = "true"
-            cookies["user_mobile"] = user.get("mobile", "")
-            cookies["user_name"] = user.get("name", "")
-            cookies["user_role"] = user.get("role", "staff")
-            cookies.save()
-
             st.rerun()
         else:
             st.error("Invalid mobile number or password")
 
     st.stop()
     
+    
+cookies["logged_in"] = "true"
+cookies["user_mobile"] = user.get("mobile")
+cookies["user_name"] = user.get("name")
+cookies["user_role"] = user.get("role")
+cookies.save()
+
+
+cookies["logged_in"] = ""
+cookies["user_mobile"] = ""
+cookies["user_name"] = ""
+cookies["user_role"] = ""
+cookies.save()   
+
+
 # ================== Sidebar ==================
 
 with st.sidebar:

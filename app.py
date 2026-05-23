@@ -22,10 +22,71 @@ from supabase import create_client
 FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
 CHROMA_DIR = "chroma_db"
 
+
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
+
+
+# ================== Secrets & Clients ==================
+
+api_key = st.secrets.get("OPENAI_API_KEY", None)
+google_service_account = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None)
+
+supabase_url = st.secrets.get("SUPABASE_URL", None)
+supabase_key = st.secrets.get("SUPABASE_KEY", None)
+
+client = OpenAI(api_key=api_key) if api_key else None
+
+if supabase_url and supabase_key:
+    supabase = create_client(supabase_url, supabase_key)
+else:
+    supabase = None
+
+
+# ================== Login Function ==================
+
+def login_user(mobile, password):
+    if not supabase:
+        return None
+
+    result = supabase.table("app_users") \
+        .select("*") \
+        .eq("mobile", mobile) \
+        .eq("password", password) \
+        .eq("status", "active") \
+        .execute()
+
+    if result.data:
+        return result.data[0]
+
+    return None
+
+
+# ================== Session State ==================
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if "messages" not in st.session_state:
+    st.session_state.messages = [{
+        "role": "assistant",
+        "content": (
+            "Hello! I am **MitrAI**.\n\n"
+            "Always here to help you with work, learning, guidance, "
+            "and everyday questions."
+        )
+    }]
+
+
+# ================== App Header ==================
 
 st.title("🤝 MitrAI")
 st.caption("Always Here to Help")
+
+
+# ================== Login Screen ==================
 
 if not st.session_state.logged_in:
     st.subheader("Login")
@@ -46,57 +107,27 @@ if not st.session_state.logged_in:
     st.stop()
 
 
-api_key = st.secrets.get("OPENAI_API_KEY", None)
-google_service_account = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None)
-
-
-supabase_url = st.secrets.get("SUPABASE_URL", None)
-supabase_key = st.secrets.get("SUPABASE_KEY", None)
-
-if supabase_url and supabase_key:
-    supabase = create_client(supabase_url, supabase_key)
-else:
-    supabase = None
-
-
-client = OpenAI(api_key=api_key) if api_key else None
-
-
-def login_user(mobile, password):
-    if not supabase:
-        return None
-
-    result = supabase.table("app_users") \
-        .select("*") \
-        .eq("mobile", mobile) \
-        .eq("password", password) \
-        .eq("status", "active") \
-        .execute()
-
-    if result.data:
-        return result.data[0]
-
-    return None
-
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-if "user" not in st.session_state:
-    st.session_state.user = None
-
+# ================== Sidebar ==================
 
 with st.sidebar:
     st.header("Settings")
-    
-     if st.session_state.user:
+
+    if st.session_state.user:
         st.write(f"Logged in as: {st.session_state.user.get('name')}")
 
         if st.button("Logout"):
             st.session_state.logged_in = False
             st.session_state.user = None
-            st.rerun()   
-        
+            st.session_state.messages = [{
+                "role": "assistant",
+                "content": (
+                    "Hello! I am **MitrAI**.\n\n"
+                    "Always here to help you with work, learning, guidance, "
+                    "and everyday questions."
+                )
+            }]
+            st.rerun()
+
     if api_key:
         st.success("AI Connected")
     else:
@@ -115,6 +146,8 @@ with st.sidebar:
         st.cache_resource.clear()
         st.success("Knowledge refreshed. Ask again.")
 
+
+# ================== Google Drive Functions ==================
 
 def get_drive_service():
     service_account_info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
@@ -201,6 +234,8 @@ def read_text_file(service, file_id):
     return file_data.getvalue().decode("utf-8", errors="ignore")
 
 
+# ================== Knowledge Base ==================
+
 @st.cache_resource
 def load_knowledge_base(openai_key):
     embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
@@ -241,14 +276,12 @@ def load_knowledge_base(openai_key):
                     )
                 )
 
-        except Exception as e:
-            st.warning(f"Could not read file: {name}")
+        except Exception:
+            pass
 
     if not documents:
         st.error("No readable documents found in Google Drive.")
         return None
-
-    
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -263,25 +296,17 @@ def load_knowledge_base(openai_key):
         persist_directory=CHROMA_DIR
     )
 
-    
     return vectorstore
 
 
-if "messages" not in st.session_state:
-    st.session_state.messages = [{
-        "role": "assistant",
-        "content": (
-            "Hello! I am **MitrAI**.\n\n"
-            "Always here to help you with work, learning, guidance, "
-            "and everyday questions."
-        )
-    }]
-
+# ================== Chat Display ==================
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+
+# ================== Chat Logic ==================
 
 if prompt := st.chat_input("Ask anything..."):
     st.session_state.messages.append({
@@ -324,6 +349,7 @@ Your tagline is: Always Here to Help.
 
 Rules:
 - Help users with work-related questions and everyday guidance.
+- If the user asks a general question like products, blogs, company, policy, documents, or available information, assume they are asking about the available knowledge base unless they clearly mention another company or topic.
 - Use the available knowledge context when relevant.
 - If the answer is not available in the knowledge base, say that clearly.
 - Do not mention any company name unless the user asks or the context requires it.
@@ -351,8 +377,8 @@ Answer in simple, clear English.
                 answer = response.choices[0].message.content
 
                 st.markdown(answer)
-                
-                if supabase:
+
+                if supabase and st.session_state.user:
                     supabase.table("chat_history").insert({
                         "user_email": "",
                         "user_name": st.session_state.user.get("name"),
@@ -365,5 +391,3 @@ Answer in simple, clear English.
                     "role": "assistant",
                     "content": answer
                 })
-                
-                

@@ -58,6 +58,11 @@ header {
     display: none;
 }
 
+button[kind="secondary"] {
+    visibility: hidden;
+}
+
+
 </style>
 """
 
@@ -311,6 +316,20 @@ with st.sidebar:
         st.cache_resource.clear()
         st.success("Knowledge refreshed. Ask again.")
 
+
+if st.session_state.user.get("role") == "admin":
+
+    if api_key:
+        st.success("AI Connected")
+
+    if google_service_account:
+        st.success("Google Drive Connected")
+
+    if st.button("Refresh Knowledge"):
+        if os.path.exists(CHROMA_DIR):
+            shutil.rmtree(CHROMA_DIR)
+        st.cache_resource.clear()
+        st.success("Knowledge refreshed. Ask again.")
 
 # ================== Google Drive Functions ==================
 

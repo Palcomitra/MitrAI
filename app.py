@@ -26,6 +26,20 @@ CHROMA_DIR = "chroma_db"
 
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 
+# ================== Hide Streamlit UI ==================
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+[data-testid="stToolbar"] {display: none;}
+[data-testid="stDecoration"] {display: none;}
+[data-testid="stStatusWidget"] {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# ================== Cookies ==================
 cookies = EncryptedCookieManager(
     prefix="mitrai_",
     password="mitrai_secure_password"
@@ -35,43 +49,7 @@ if not cookies.ready():
     st.stop()
 
 
-# ================== Hide Streamlit UI ==================
-
-hide_streamlit_style = """
-<style>
-
-#MainMenu {
-    visibility: hidden;
-}
-
-footer {
-    visibility: hidden;
-}
-
-header {
-    visibility: hidden;
-}
-
-[data-testid="stToolbar"] {
-    display: none;
-}
-
-[data-testid="stDecoration"] {
-    display: none;
-}
-
-[data-testid="stStatusWidget"] {
-    visibility: hidden;
-}
-
-</style>
-"""
-
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-
 # ================== Secrets & Clients ==================
-
 api_key = st.secrets.get("OPENAI_API_KEY", None)
 google_service_account = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None)
 
@@ -87,7 +65,6 @@ else:
 
 
 # ================== Login Function ==================
-
 def login_user(mobile, password):
     if not supabase:
         return None
@@ -106,11 +83,9 @@ def login_user(mobile, password):
 
 
 # ================== Admin Helper Functions ==================
-
 def get_total_users():
     if not supabase:
         return 0
-
     try:
         result = supabase.table("app_users").select("*").execute()
         return len(result.data or [])
@@ -121,7 +96,6 @@ def get_total_users():
 def get_total_chats():
     if not supabase:
         return 0
-
     try:
         result = supabase.table("chat_history").select("*").execute()
         return len(result.data or [])
@@ -129,10 +103,9 @@ def get_total_chats():
         return 0
 
 
-def get_recent_chats(limit=20):
+def get_recent_chats(limit=50):
     if not supabase:
         return []
-
     try:
         result = supabase.table("chat_history") \
             .select("*") \
@@ -154,7 +127,6 @@ def get_recent_chats(limit=20):
 def get_users():
     if not supabase:
         return []
-
     try:
         result = supabase.table("app_users") \
             .select("*") \
@@ -165,7 +137,6 @@ def get_users():
 
 
 # ================== Session State ==================
-
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -182,30 +153,28 @@ if "messages" not in st.session_state:
         )
     }]
 
+
 # ================== Restore Login From Cookies ==================
-
-if (
-    not st.session_state.logged_in
-    and cookies.get("logged_in") == "true"
-):
-
+if not st.session_state.logged_in and cookies.get("logged_in") == "true":
     st.session_state.logged_in = True
-
     st.session_state.user = {
-        "mobile": cookies.get("user_mobile"),
-        "name": cookies.get("user_name"),
-        "role": cookies.get("user_role"),
+        "mobile": cookies.get("user_mobile", ""),
+        "name": cookies.get("user_name", ""),
+        "role": cookies.get("user_role", "staff"),
         "email": cookies.get("user_email", "")
     }
 
-# ================== App Header ==================
 
-st.title("🤝 MitrAI")
-st.caption("Always Here to Help")
+# ================== Header ==================
+def render_header():
+    st.title("🤝 MitrAI")
+    st.caption("Always Here to Help")
+
+
+render_header()
 
 
 # ================== Login Screen ==================
-
 if not st.session_state.logged_in:
     st.subheader("Login")
 
@@ -218,29 +187,26 @@ if not st.session_state.logged_in:
         if user:
             st.session_state.logged_in = True
             st.session_state.user = user
+
+            cookies["logged_in"] = "true"
+            cookies["user_mobile"] = str(user.get("mobile", ""))
+            cookies["user_name"] = str(user.get("name", ""))
+            cookies["user_role"] = str(user.get("role", "staff"))
+            cookies["user_email"] = str(user.get("email", ""))
+            cookies.save()
+
             st.rerun()
         else:
             st.error("Invalid mobile number or password")
 
     st.stop()
-    
-    
-cookies["logged_in"] = "true"
-cookies["user_mobile"] = user.get("mobile")
-cookies["user_name"] = user.get("name")
-cookies["user_role"] = user.get("role")
-cookies.save()
 
 
-cookies["logged_in"] = ""
-cookies["user_mobile"] = ""
-cookies["user_name"] = ""
-cookies["user_role"] = ""
-cookies.save()   
+# ================== Role ==================
+user_role = str((st.session_state.user or {}).get("role", "staff")).strip().lower()
 
 
 # ================== Sidebar ==================
-
 with st.sidebar:
     st.header("Settings")
 
@@ -259,7 +225,7 @@ with st.sidebar:
                 )
             }]
 
-            cookies["logged_in"] = ""
+            cookies["logged_in"] = "false"
             cookies["user_mobile"] = ""
             cookies["user_name"] = ""
             cookies["user_role"] = ""
@@ -267,8 +233,6 @@ with st.sidebar:
             cookies.save()
 
             st.rerun()
-
-    user_role = str((st.session_state.user or {}).get("role", "staff")).strip().lower()
 
     if user_role == "admin":
         st.divider()
@@ -290,50 +254,8 @@ with st.sidebar:
             st.cache_resource.clear()
             st.success("Knowledge refreshed. Ask again.")
 
-        st.divider()
-        st.subheader("Admin Dashboard")
-
-        total_users = get_total_users()
-        total_chats = get_total_chats()
-
-        st.metric("Total Users", total_users)
-        st.metric("Total Chats", total_chats)
-
-        with st.expander("Recent Chats", expanded=False):
-            recent_chats = get_recent_chats(20)
-
-            if recent_chats:
-                for chat in recent_chats:
-                    user_name = chat.get("user_name") or "Unknown User"
-                    user_mobile = chat.get("user_mobile") or ""
-                    question = chat.get("user_question") or ""
-                    answer = chat.get("ai_answer") or ""
-
-                    st.markdown(f"**{user_name}** {user_mobile}")
-                    st.markdown(f"**Q:** {question}")
-                    st.markdown(f"**A:** {answer[:300]}...")
-                    st.divider()
-            else:
-                st.info("No chat history found.")
-
-        with st.expander("Users", expanded=False):
-            users = get_users()
-
-            if users:
-                for u in users:
-                    st.markdown(
-                        f"**{u.get('name', 'Unknown')}**  \n"
-                        f"Mobile: {u.get('mobile', '')}  \n"
-                        f"Role: {u.get('role', '')}  \n"
-                        f"Status: {u.get('status', '')}"
-                    )
-                    st.divider()
-            else:
-                st.info("No users found.")
-
 
 # ================== Google Drive Functions ==================
-
 def get_drive_service():
     service_account_info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
 
@@ -347,7 +269,6 @@ def get_drive_service():
 
 def list_drive_files(service, folder_id):
     all_files = []
-
     query = f"'{folder_id}' in parents and trashed = false"
 
     results = service.files().list(
@@ -371,11 +292,7 @@ def list_drive_files(service, folder_id):
 
 
 def read_google_doc(service, file_id):
-    request = service.files().export_media(
-        fileId=file_id,
-        mimeType="text/plain"
-    )
-
+    request = service.files().export_media(fileId=file_id, mimeType="text/plain")
     file_data = io.BytesIO()
     downloader = MediaIoBaseDownload(file_data, request)
 
@@ -388,7 +305,6 @@ def read_google_doc(service, file_id):
 
 def read_pdf(service, file_id):
     request = service.files().get_media(fileId=file_id)
-
     file_data = io.BytesIO()
     downloader = MediaIoBaseDownload(file_data, request)
 
@@ -408,7 +324,6 @@ def read_pdf(service, file_id):
 
 def read_text_file(service, file_id):
     request = service.files().get_media(fileId=file_id)
-
     file_data = io.BytesIO()
     downloader = MediaIoBaseDownload(file_data, request)
 
@@ -420,7 +335,6 @@ def read_text_file(service, file_id):
 
 
 # ================== Knowledge Base ==================
-
 @st.cache_resource
 def load_knowledge_base(openai_key):
     embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
@@ -433,7 +347,6 @@ def load_knowledge_base(openai_key):
 
     service = get_drive_service()
     files = list_drive_files(service, FOLDER_ID)
-
     documents = []
 
     for file in files:
@@ -446,10 +359,8 @@ def load_knowledge_base(openai_key):
 
             if mime_type == "application/vnd.google-apps.document":
                 text = read_google_doc(service, file_id)
-
             elif mime_type == "application/pdf":
                 text = read_pdf(service, file_id)
-
             elif mime_type == "text/plain":
                 text = read_text_file(service, file_id)
 
@@ -460,7 +371,6 @@ def load_knowledge_base(openai_key):
                         metadata={"source": name}
                     )
                 )
-
         except Exception:
             pass
 
@@ -468,11 +378,7 @@ def load_knowledge_base(openai_key):
         st.error("No readable documents found in Google Drive.")
         return None
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
-    )
-
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = splitter.split_documents(documents)
 
     vectorstore = Chroma.from_documents(
@@ -484,28 +390,23 @@ def load_knowledge_base(openai_key):
     return vectorstore
 
 
-# ================== Chat Display ==================
+# ================== Chat UI ==================
+def render_chat():
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    if prompt := st.chat_input("Ask anything..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
 
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-# ================== Chat Logic ==================
+        with st.chat_message("assistant"):
+            if not api_key:
+                st.error("AI connection is not configured.")
+                return
 
-if prompt := st.chat_input("Ask anything..."):
-    st.session_state.messages.append({
-        "role": "user",
-        "content": prompt
-    })
-
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        if not api_key:
-            st.error("AI connection is not configured.")
-        else:
             with st.spinner("Thinking..."):
                 prompt_lower = prompt.lower()
 
@@ -522,21 +423,16 @@ if prompt := st.chat_input("Ask anything..."):
                 if use_knowledge and google_service_account:
                     try:
                         vectorstore = load_knowledge_base(api_key)
-
                         if vectorstore:
-                            retriever = vectorstore.as_retriever(
-                                search_kwargs={"k": 5}
-                            )
-
+                            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
                             relevant_docs = retriever.invoke(prompt)
-
                             context = "\n\n".join(
                                 [
                                     f"Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}"
                                     for doc in relevant_docs
                                 ]
                             )
-                    except Exception as e:
+                    except Exception:
                         context = ""
 
                 if use_knowledge:
@@ -569,16 +465,12 @@ Answer in the same language style as the user. If the user mixes Hindi and Engli
                 try:
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
-                        messages=[
-                            {"role": "user", "content": final_prompt}
-                        ],
+                        messages=[{"role": "user", "content": final_prompt}],
                         temperature=0.4,
                         max_tokens=900
                     )
-
                     answer = response.choices[0].message.content
-
-                except Exception as e:
+                except Exception:
                     answer = "Sorry, abhi AI response generate nahi ho pa raha. Please thodi der baad try karein."
 
                 st.markdown(answer)
@@ -595,7 +487,64 @@ Answer in the same language style as the user. If the user mixes Hindi and Engli
                     except Exception:
                         pass
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": answer
-                })
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+
+
+# ================== Admin Dashboard UI ==================
+def render_admin_dashboard():
+    st.subheader("Admin Dashboard")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Users", get_total_users())
+    with col2:
+        st.metric("Total Chats", get_total_chats())
+
+    st.divider()
+
+    st.subheader("Recent Chats")
+    recent_chats = get_recent_chats(50)
+
+    if recent_chats:
+        for chat in recent_chats:
+            user_name = chat.get("user_name") or "Unknown User"
+            user_mobile = chat.get("user_mobile") or ""
+            question = chat.get("user_question") or ""
+            answer = chat.get("ai_answer") or ""
+            created_at = chat.get("created_at") or ""
+
+            with st.expander(f"{user_name} | {user_mobile} | {created_at}"):
+                st.markdown(f"**Question:** {question}")
+                st.markdown(f"**Answer:** {answer}")
+    else:
+        st.info("No chat history found.")
+
+    st.divider()
+
+    st.subheader("Users")
+    users = get_users()
+
+    if users:
+        for u in users:
+            st.markdown(
+                f"**{u.get('name', 'Unknown')}**  \n"
+                f"Mobile: {u.get('mobile', '')}  \n"
+                f"Role: {u.get('role', '')}  \n"
+                f"Status: {u.get('status', '')}"
+            )
+            st.divider()
+    else:
+        st.info("No users found.")
+
+
+# ================== Main Area ==================
+if user_role == "admin":
+    tab_chat, tab_dashboard = st.tabs(["💬 Chat", "📊 Admin Dashboard"])
+
+    with tab_chat:
+        render_chat()
+
+    with tab_dashboard:
+        render_admin_dashboard()
+else:
+    render_chat()

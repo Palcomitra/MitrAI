@@ -61,6 +61,120 @@ def login_user(mobile, password):
     return None
 
 
+
+# ================== Admin Helper Functions ==================
+
+def is_admin_user():
+    user = st.session_state.get("user")
+    if not user:
+        return False
+
+    role = str(user.get("role", "")).strip().lower()
+    return role == "admin"
+
+
+def fetch_app_users():
+    if not supabase:
+        return []
+
+    try:
+        result = supabase.table("app_users") \
+            .select("name,mobile,status,role") \
+            .order("name") \
+            .execute()
+        return result.data or []
+    except Exception as e:
+        st.error(f"Unable to fetch users: {e}")
+        return []
+
+
+def fetch_chat_history(limit=100, mobile_filter=None):
+    if not supabase:
+        return []
+
+    try:
+        query = supabase.table("chat_history") \
+            .select("*") \
+            .order("created_at", desc=True) \
+            .limit(limit)
+
+        if mobile_filter and mobile_filter != "All":
+            query = query.eq("user_mobile", mobile_filter)
+
+        result = query.execute()
+        return result.data or []
+
+    except Exception as e:
+        st.error(f"Unable to fetch chat history: {e}")
+        return []
+
+
+def render_admin_dashboard():
+    st.title("Admin Dashboard")
+    st.caption("MitrAI usage, users, and recent chat history")
+
+    users = fetch_app_users()
+    chats = fetch_chat_history(limit=200)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Users", len(users))
+    col2.metric("Total Chats", len(chats))
+    col3.metric(
+        "Active Users",
+        len([u for u in users if str(u.get("status", "")).lower() == "active"])
+    )
+
+    st.divider()
+
+    st.subheader("Users")
+
+    if users:
+        st.dataframe(users, use_container_width=True, hide_index=True)
+    else:
+        st.info("No users found.")
+
+    st.divider()
+
+    st.subheader("Chat History")
+
+    user_options = ["All"]
+    user_options += sorted(
+        list({
+            str(chat.get("user_mobile"))
+            for chat in chats
+            if chat.get("user_mobile")
+        })
+    )
+
+    selected_mobile = st.selectbox("Filter by mobile", user_options)
+
+    filtered_chats = fetch_chat_history(
+        limit=100,
+        mobile_filter=selected_mobile
+    )
+
+    if filtered_chats:
+        for chat in filtered_chats:
+            user_name = chat.get("user_name") or "Unknown User"
+            user_mobile = chat.get("user_mobile") or ""
+            created_at = chat.get("created_at") or ""
+
+            with st.expander(f"{user_name} {user_mobile} | {created_at}"):
+                st.markdown("**User Question:**")
+                st.write(chat.get("user_question", ""))
+
+                st.markdown("**AI Answer:**")
+                st.write(chat.get("ai_answer", ""))
+    else:
+        st.info("No chat history found.")
+
+    st.divider()
+
+    if st.button("Back to Chat"):
+        st.session_state.show_admin_dashboard = False
+        st.rerun()
+
+
 # ================== Session State ==================
 
 if "logged_in" not in st.session_state:
@@ -68,6 +182,9 @@ if "logged_in" not in st.session_state:
 
 if "user" not in st.session_state:
     st.session_state.user = None
+
+if "show_admin_dashboard" not in st.session_state:
+    st.session_state.show_admin_dashboard = False
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{
@@ -139,6 +256,14 @@ with st.sidebar:
         st.error("Google Service Account missing")
 
     st.divider()
+
+    if is_admin_user():
+        st.subheader("Admin")
+        if st.button("Open Admin Dashboard"):
+            st.session_state.show_admin_dashboard = True
+            st.rerun()
+
+        st.divider()
 
     if st.button("Refresh Knowledge"):
         if os.path.exists(CHROMA_DIR):
@@ -297,6 +422,14 @@ def load_knowledge_base(openai_key):
     )
 
     return vectorstore
+
+
+
+# ================== Admin Dashboard View ==================
+
+if is_admin_user() and st.session_state.show_admin_dashboard:
+    render_admin_dashboard()
+    st.stop()
 
 
 # ================== Chat Display ==================

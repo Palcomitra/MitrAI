@@ -27,6 +27,24 @@ st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 st.title("🤝 MitrAI")
 st.caption("Always Here to Help")
 
+if not st.session_state.logged_in:
+    st.subheader("Login")
+
+    mobile = st.text_input("Mobile Number")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        user = login_user(mobile, password)
+
+        if user:
+            st.session_state.logged_in = True
+            st.session_state.user = user
+            st.rerun()
+        else:
+            st.error("Invalid mobile number or password")
+
+    st.stop()
+
 
 api_key = st.secrets.get("OPENAI_API_KEY", None)
 google_service_account = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None)
@@ -39,15 +57,46 @@ if supabase_url and supabase_key:
     supabase = create_client(supabase_url, supabase_key)
 else:
     supabase = None
-    
-    
+
 
 client = OpenAI(api_key=api_key) if api_key else None
 
 
+def login_user(mobile, password):
+    if not supabase:
+        return None
+
+    result = supabase.table("app_users") \
+        .select("*") \
+        .eq("mobile", mobile) \
+        .eq("password", password) \
+        .eq("status", "active") \
+        .execute()
+
+    if result.data:
+        return result.data[0]
+
+    return None
+
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+
 with st.sidebar:
     st.header("Settings")
+    
+     if st.session_state.user:
+        st.write(f"Logged in as: {st.session_state.user.get('name')}")
 
+        if st.button("Logout"):
+            st.session_state.logged_in = False
+            st.session_state.user = None
+            st.rerun()   
+        
     if api_key:
         st.success("AI Connected")
     else:
@@ -305,7 +354,9 @@ Answer in simple, clear English.
                 
                 if supabase:
                     supabase.table("chat_history").insert({
-                        "user_email": "guest_user",
+                        "user_email": "",
+                        "user_name": st.session_state.user.get("name"),
+                        "user_mobile": st.session_state.user.get("mobile"),
                         "user_question": prompt,
                         "ai_answer": answer
                     }).execute()

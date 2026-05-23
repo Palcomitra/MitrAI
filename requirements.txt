@@ -12,3 +12,5 @@ google-auth-httplib2
 
 pypdf
 protobuf==5.29.3
+
+supabase

@@ -16,6 +16,8 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from supabase import create_client
+
 
 FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
 CHROMA_DIR = "chroma_db"
@@ -28,6 +30,17 @@ st.caption("Always Here to Help")
 
 api_key = st.secrets.get("OPENAI_API_KEY", None)
 google_service_account = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None)
+
+
+supabase_url = st.secrets.get("SUPABASE_URL", None)
+supabase_key = st.secrets.get("SUPABASE_KEY", None)
+
+if supabase_url and supabase_key:
+    supabase = create_client(supabase_url, supabase_key)
+else:
+    supabase = None
+    
+    
 
 client = OpenAI(api_key=api_key) if api_key else None
 
@@ -289,8 +302,17 @@ Answer in simple, clear English.
                 answer = response.choices[0].message.content
 
                 st.markdown(answer)
+                
+                if supabase:
+                    supabase.table("chat_history").insert({
+                        "user_email": "guest_user",
+                        "user_question": prompt,
+                        "ai_answer": answer
+                    }).execute()
 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer
                 })
+                
+                

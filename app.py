@@ -25,6 +25,46 @@ CHROMA_DIR = "chroma_db"
 
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 
+# ================== Hide Streamlit UI ==================
+
+hide_streamlit_style = """
+<style>
+
+#MainMenu {
+    visibility: hidden;
+}
+
+footer {
+    visibility: hidden;
+}
+
+header {
+    visibility: hidden;
+}
+
+[data-testid="stToolbar"] {
+    display: none;
+}
+
+[data-testid="stDecoration"] {
+    display: none;
+}
+
+[data-testid="stStatusWidget"] {
+    visibility: hidden;
+}
+
+[data-testid="manage-app-button"] {
+    display: none;
+}
+
+</style>
+"""
+
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+
+
 
 # ================== Secrets & Clients ==================
 

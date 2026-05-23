@@ -17,6 +17,7 @@ from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from supabase import create_client
+from streamlit_cookies_manager import EncryptedCookieManager
 
 
 FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
@@ -24,6 +25,14 @@ CHROMA_DIR = "chroma_db"
 
 
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
+
+cookies = EncryptedCookieManager(
+    prefix="mitrai_",
+    password="mitrai_secure_password"
+)
+
+if not cookies.ready():
+    st.stop()
 
 
 # ================== Hide Streamlit UI ==================
@@ -173,6 +182,21 @@ if "messages" not in st.session_state:
         )
     }]
 
+# ================== Restore Login From Cookies ==================
+
+if (
+    not st.session_state.logged_in
+    and cookies.get("logged_in") == "true"
+):
+
+    st.session_state.logged_in = True
+
+    st.session_state.user = {
+        "mobile": cookies.get("user_mobile"),
+        "name": cookies.get("user_name"),
+        "role": cookies.get("user_role"),
+        "email": cookies.get("user_email", "")
+    }
 
 # ================== App Header ==================
 
@@ -199,6 +223,20 @@ if not st.session_state.logged_in:
             st.error("Invalid mobile number or password")
 
     st.stop()
+    
+    
+cookies["logged_in"] = "true"
+cookies["user_mobile"] = user.get("mobile")
+cookies["user_name"] = user.get("name")
+cookies["user_role"] = user.get("role")
+cookies.save()
+
+
+cookies["logged_in"] = ""
+cookies["user_mobile"] = ""
+cookies["user_name"] = ""
+cookies["user_role"] = ""
+cookies.save()   
 
 
 # ================== Sidebar ==================
@@ -220,9 +258,17 @@ with st.sidebar:
                     "and everyday questions."
                 )
             }]
+
+            cookies["logged_in"] = ""
+            cookies["user_mobile"] = ""
+            cookies["user_name"] = ""
+            cookies["user_role"] = ""
+            cookies["user_email"] = ""
+            cookies.save()
+
             st.rerun()
 
-    user_role = (st.session_state.user or {}).get("role", "staff")
+    user_role = str((st.session_state.user or {}).get("role", "staff")).strip().lower()
 
     if user_role == "admin":
         st.divider()
@@ -459,27 +505,44 @@ if prompt := st.chat_input("Ask anything..."):
     with st.chat_message("assistant"):
         if not api_key:
             st.error("AI connection is not configured.")
-        elif not google_service_account:
-            st.error("Google Drive connection is not configured.")
         else:
             with st.spinner("Thinking..."):
-                vectorstore = load_knowledge_base(api_key)
+                prompt_lower = prompt.lower()
 
+                knowledge_keywords = [
+                    "palco", "paras lubricants", "paras", "lubricants",
+                    "company profile", "product catalog", "catalogue", "brochure",
+                    "policy", "hr", "office", "drive document", "google drive",
+                    "product list", "company products", "about company"
+                ]
+
+                use_knowledge = any(word in prompt_lower for word in knowledge_keywords)
                 context = ""
 
-                if vectorstore:
-                    retriever = vectorstore.as_retriever(
-                        search_kwargs={"k": 5}
-                    )
+                if use_knowledge and google_service_account:
+                    try:
+                        vectorstore = load_knowledge_base(api_key)
 
-                    relevant_docs = retriever.invoke(prompt)
+                        if vectorstore:
+                            retriever = vectorstore.as_retriever(
+                                search_kwargs={"k": 5}
+                            )
 
-                    context = "\n\n".join(
-                        [
-                            f"Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}"
-                            for doc in relevant_docs
-                        ]
-                    )
+                            relevant_docs = retriever.invoke(prompt)
+
+                            context = "\n\n".join(
+                                [
+                                    f"Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}"
+                                    for doc in relevant_docs
+                                ]
+                            )
+                    except Exception as e:
+                        context = ""
+
+                if use_knowledge:
+                    knowledge_rule = "Use the Knowledge Context if it contains useful information. If the answer is not available in the Knowledge Context, say that clearly and then give general guidance only if helpful."
+                else:
+                    knowledge_rule = "This is a normal general question. Answer using your general AI knowledge. Do not say the answer is missing from the knowledge base."
 
                 final_prompt = f"""
 You are MitrAI, a friendly and practical AI companion.
@@ -487,11 +550,10 @@ You are MitrAI, a friendly and practical AI companion.
 Your tagline is: Always Here to Help.
 
 Rules:
-- Help users with work-related questions and everyday guidance.
-- If the user asks a general question like products, blogs, company, policy, documents, or available information, assume they are asking about the available knowledge base unless they clearly mention another company or topic.
-- Use the available knowledge context when relevant.
-- If the answer is not available in the knowledge base, say that clearly.
-- Do not mention any company name unless the user asks or the context requires it.
+- Normal questions must be answered directly using general AI knowledge.
+- PALCO, Paras Lubricants, company documents, products, policy, HR, brochure, or Google Drive related questions should use the Knowledge Context when available.
+- {knowledge_rule}
+- Do not mention backend, API, vector database, or Google Drive unless the user specifically asks.
 - Give simple, clear, practical answers.
 - For medical, legal, financial, or emotional crisis questions, give safe general guidance and suggest professional help when needed.
 
@@ -501,30 +563,37 @@ Knowledge Context:
 User Question:
 {prompt}
 
-Answer in simple, clear English.
+Answer in the same language style as the user. If the user mixes Hindi and English, answer in simple Hindi-English mix.
 """
 
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "user", "content": final_prompt}
-                    ],
-                    temperature=0.4,
-                    max_tokens=900
-                )
+                try:
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "user", "content": final_prompt}
+                        ],
+                        temperature=0.4,
+                        max_tokens=900
+                    )
 
-                answer = response.choices[0].message.content
+                    answer = response.choices[0].message.content
+
+                except Exception as e:
+                    answer = "Sorry, abhi AI response generate nahi ho pa raha. Please thodi der baad try karein."
 
                 st.markdown(answer)
 
                 if supabase and st.session_state.user:
-                    supabase.table("chat_history").insert({
-                        "user_email": st.session_state.user.get("email", ""),
-                        "user_name": st.session_state.user.get("name"),
-                        "user_mobile": st.session_state.user.get("mobile"),
-                        "user_question": prompt,
-                        "ai_answer": answer
-                    }).execute()
+                    try:
+                        supabase.table("chat_history").insert({
+                            "user_email": st.session_state.user.get("email", ""),
+                            "user_name": st.session_state.user.get("name"),
+                            "user_mobile": st.session_state.user.get("mobile"),
+                            "user_question": prompt,
+                            "ai_answer": answer
+                        }).execute()
+                    except Exception:
+                        pass
 
                 st.session_state.messages.append({
                     "role": "assistant",

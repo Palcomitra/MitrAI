@@ -2,6 +2,7 @@ import os
 import io
 import json
 import shutil
+import base64
 import streamlit as st
 from openai import OpenAI
 
@@ -22,11 +23,12 @@ from streamlit_cookies_manager import EncryptedCookieManager
 
 FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
 CHROMA_DIR = "chroma_db"
+LOGO_PATH = "assets/palco-logo.png"
 
 
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
 
-# ================== Hide Streamlit UI ==================
+# ================== Global UI CSS ==================
 hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -35,6 +37,108 @@ header {visibility: hidden;}
 [data-testid="stToolbar"] {display: none;}
 [data-testid="stDecoration"] {display: none;}
 [data-testid="stStatusWidget"] {visibility: hidden;}
+
+.block-container {
+    padding-top: 2.5rem;
+    padding-bottom: 2rem;
+    max-width: 1100px;
+}
+
+.login-left-card {
+    padding: 30px 35px 30px 10px;
+}
+
+.login-logo-fallback {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #b21f24, #d4a017);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 800;
+    font-size: 34px;
+    border: 6px solid #ffd447;
+    margin-bottom: 35px;
+}
+
+.login-title-left {
+    font-size: 25px;
+    line-height: 1.18;
+    font-weight: 600;
+    color: #3b3b46;
+    margin-top: 28px;
+    margin-bottom: 28px;
+    letter-spacing: 0.2px;
+}
+
+.login-desc-left {
+    font-size: 24px;
+    line-height: 1.25;
+    color: #3b3b46;
+    margin-top: 24px;
+}
+
+.login-divider {
+    width: 3px;
+    min-height: 370px;
+    background: #f0cd62;
+    margin: 0 auto;
+}
+
+.mitra-login-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 20px;
+}
+
+.mitra-login-icon {
+    font-size: 38px;
+}
+
+.mitra-login-title {
+    font-size: 44px;
+    font-weight: 800;
+    color: #2e3040;
+    letter-spacing: -1px;
+}
+
+.mitra-login-caption {
+    color: #8b8f99;
+    font-size: 14px;
+    margin-top: 2px;
+    margin-bottom: 30px;
+}
+
+.login-heading {
+    font-size: 27px;
+    font-weight: 700;
+    color: #202334;
+    margin-bottom: 18px;
+}
+
+.stTextInput > div > div > input {
+    border-radius: 8px;
+    min-height: 42px;
+}
+
+.stButton > button {
+    border-radius: 8px;
+    padding: 0.45rem 1rem;
+}
+
+[data-testid="stSidebar"] {
+    background: #f3f6fa;
+}
+
+@media (max-width: 768px) {
+    .login-divider {display: none;}
+    .login-title-left {font-size: 21px;}
+    .login-desc-left {font-size: 19px;}
+    .mitra-login-title {font-size: 38px;}
+}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -165,41 +269,108 @@ if not st.session_state.logged_in and cookies.get("logged_in") == "true":
     }
 
 
-# ================== Header ==================
+# ================== UI Helpers ==================
+def image_to_base64(path):
+    try:
+        with open(path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode()
+    except Exception:
+        return None
+
+
 def render_header():
     st.title("🤝 MitrAI")
     st.caption("Always Here to Help")
 
 
-render_header()
+def render_login_screen():
+    left, divider, right = st.columns([1.18, 0.08, 1.25], vertical_alignment="center")
+
+    with left:
+        logo_b64 = image_to_base64(LOGO_PATH)
+        if logo_b64:
+            st.markdown(
+                f"""
+                <div class="login-left-card">
+                    <img src="data:image/png;base64,{logo_b64}" style="width:120px; margin-bottom:36px;" />
+                    <div class="login-title-left">
+                        Official AI Assistant for<br>
+                        Paras Lubricants Limited Employees
+                    </div>
+                    <div class="login-desc-left">
+                        Access company knowledge,<br>
+                        product information, internal support,<br>
+                        and work guidance in one place.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                """
+                <div class="login-left-card">
+                    <div class="login-logo-fallback">PL</div>
+                    <div class="login-title-left">
+                        Official AI Assistant for<br>
+                        Paras Lubricants Limited Employees
+                    </div>
+                    <div class="login-desc-left">
+                        Access company knowledge,<br>
+                        product information, internal support,<br>
+                        and work guidance in one place.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    with divider:
+        st.markdown('<div class="login-divider"></div>', unsafe_allow_html=True)
+
+    with right:
+        st.markdown(
+            """
+            <div class="mitra-login-head">
+                <div class="mitra-login-icon">🤝</div>
+                <div class="mitra-login-title">MitrAI</div>
+            </div>
+            <div class="mitra-login-caption">Always Here to Help</div>
+            <div class="login-heading">Login</div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        mobile = st.text_input("Mobile Number", key="login_mobile")
+        password = st.text_input("Password", type="password", key="login_password")
+
+        if st.button("Login", key="login_button"):
+            user = login_user(mobile, password)
+
+            if user:
+                st.session_state.logged_in = True
+                st.session_state.user = user
+
+                cookies["logged_in"] = "true"
+                cookies["user_mobile"] = str(user.get("mobile", ""))
+                cookies["user_name"] = str(user.get("name", ""))
+                cookies["user_role"] = str(user.get("role", "staff"))
+                cookies["user_email"] = str(user.get("email", ""))
+                cookies.save()
+
+                st.rerun()
+            else:
+                st.error("Invalid mobile number or password")
 
 
 # ================== Login Screen ==================
 if not st.session_state.logged_in:
-    st.subheader("Login")
-
-    mobile = st.text_input("Mobile Number")
-    password = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        user = login_user(mobile, password)
-
-        if user:
-            st.session_state.logged_in = True
-            st.session_state.user = user
-
-            cookies["logged_in"] = "true"
-            cookies["user_mobile"] = str(user.get("mobile", ""))
-            cookies["user_name"] = str(user.get("name", ""))
-            cookies["user_role"] = str(user.get("role", "staff"))
-            cookies["user_email"] = str(user.get("email", ""))
-            cookies.save()
-
-            st.rerun()
-        else:
-            st.error("Invalid mobile number or password")
-
+    render_login_screen()
     st.stop()
+
+
+# ================== Logged In Header ==================
+render_header()
 
 
 # ================== Role ==================
@@ -451,6 +622,7 @@ Rules:
 - {knowledge_rule}
 - Do not mention backend, API, vector database, or Google Drive unless the user specifically asks.
 - Give simple, clear, practical answers.
+- Answer in the same language style as the user. If the user writes in Hindi, answer in Hindi. If the user mixes Hindi and English, answer in simple Hindi-English mix.
 - For medical, legal, financial, or emotional crisis questions, give safe general guidance and suggest professional help when needed.
 
 Knowledge Context:
@@ -459,7 +631,7 @@ Knowledge Context:
 User Question:
 {prompt}
 
-Answer in the same language style as the user. If the user mixes Hindi and English, answer in simple Hindi-English mix.
+Answer:
 """
 
                 try:
@@ -467,7 +639,7 @@ Answer in the same language style as the user. If the user mixes Hindi and Engli
                         model="gpt-4o-mini",
                         messages=[{"role": "user", "content": final_prompt}],
                         temperature=0.4,
-                        max_tokens=900
+                        max_tokens=700
                     )
                     answer = response.choices[0].message.content
                 except Exception:

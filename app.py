@@ -23,7 +23,7 @@ from streamlit_cookies_manager import EncryptedCookieManager
 
 FOLDER_ID = "0ADFKVoP1n82mUk9PVA"
 CHROMA_DIR = "chroma_db"
-LOGO_PATH = "assets/palco-logo.png"
+LOGO_PATH = "logo.png"
 
 
 st.set_page_config(page_title="MitrAI", page_icon="🤝", layout="centered")
@@ -379,10 +379,28 @@ user_role = str((st.session_state.user or {}).get("role", "staff")).strip().lowe
 
 # ================== Sidebar ==================
 with st.sidebar:
-    st.header("Settings")
 
+    # Logo
+    try:
+        st.image("palco-logo.png", width=110)
+    except Exception:
+        pass
+
+    # User welcome
     if st.session_state.user:
-        st.write(f"Logged in as: {st.session_state.user.get('name')}")
+        user_name = st.session_state.user.get("name", "User")
+
+        st.markdown(
+            f"""
+            <div style="margin-top: 20px; margin-bottom: 25px;">
+                <div style="font-size: 16px; color: #666;">Welcome</div>
+                <div style="font-size: 22px; font-weight: 700; line-height: 1.2;">
+                    {user_name}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         if st.button("Logout"):
             st.session_state.logged_in = False
@@ -405,9 +423,11 @@ with st.sidebar:
 
             st.rerun()
 
+    # Admin-only tools
     if user_role == "admin":
         st.divider()
-        st.subheader("Admin Tools")
+
+        st.markdown("### Admin Tools")
 
         if api_key:
             st.success("AI Connected")
@@ -424,7 +444,6 @@ with st.sidebar:
                 shutil.rmtree(CHROMA_DIR)
             st.cache_resource.clear()
             st.success("Knowledge refreshed. Ask again.")
-
 
 # ================== Google Drive Functions ==================
 def get_drive_service():
